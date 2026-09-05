@@ -34,6 +34,27 @@ pub fn values(json: &Value) -> BTreeMap<String, String> {
     if let Some(slot) = json.get("SystemSlot") {
         slot_values(slot, &mut result);
     }
+    if let Some(array) = json.get("PhysicalMemoryArray") {
+        let kib = if array["maximum_capacity"] == "SeeExtendedMaximumCapacity" {
+            array["extended_maximum_capacity"]
+                .as_u64()
+                .map(|bytes| bytes / 1024)
+        } else {
+            array["maximum_capacity"]["Kilobytes"].as_u64()
+        };
+        // The extended field is a byte count, valid only when the legacy field
+        // contains the sentinel. Present one resolved capacity in the UI.
+        result.remove("extended_maximum_capacity");
+        result.remove("maximum_capacity");
+        if let Some(kib) = kib {
+            let label = if kib >= 1024 * 1024 * 1024 {
+                format!("{} TiB", compact(kib as f64 / (1024.0 * 1024.0 * 1024.0)))
+            } else {
+                capacity(kib)
+            };
+            result.insert("maximum_capacity".into(), label);
+        }
+    }
     result
 }
 
@@ -513,6 +534,21 @@ fn compact(n: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn array_capacity_resolves_units_and_extended_sentinel() {
+        let regular = serde_json::json!({"PhysicalMemoryArray": {
+            "maximum_capacity": {"Kilobytes":67108864}, "extended_maximum_capacity":0
+        }});
+        assert_eq!(values(&regular)["maximum_capacity"], "64 GiB");
+        assert!(!values(&regular).contains_key("extended_maximum_capacity"));
+        let mut extended = serde_json::json!({"PhysicalMemoryArray": {
+            "maximum_capacity":"SeeExtendedMaximumCapacity",
+            "extended_maximum_capacity":4398046511104u64
+        }});
+        assert_eq!(values(&extended)["maximum_capacity"], "4 TiB");
+        extended["PhysicalMemoryArray"]["extended_maximum_capacity"] = Value::Null;
+        assert!(!values(&extended).contains_key("maximum_capacity"));
+    }
     #[test]
     fn slot_details_decode_nested_enums_and_pci_address() {
         let mut json = serde_json::json!({"SystemSlot": {
