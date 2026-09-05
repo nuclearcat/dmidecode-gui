@@ -110,7 +110,7 @@ impl Explorer {
             .clicked()
         {
             if let Some(path) = rfd::FileDialog::new()
-                .set_file_name("smbios.json")
+                .set_file_name(self.snapshot.as_ref().unwrap().export_filename())
                 .save_file()
             {
                 match std::fs::write(&path, &self.snapshot.as_ref().unwrap().json) {

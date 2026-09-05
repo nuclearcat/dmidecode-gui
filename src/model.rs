@@ -41,6 +41,8 @@ pub struct Record {
 #[derive(Serialize, Deserialize)]
 pub struct Snapshot {
     pub source: String,
+    #[serde(default)]
+    pub hostname: Option<String>,
     pub records: Vec<Record>,
     pub json: String,
 }
@@ -75,7 +77,37 @@ pub fn flatten(prefix: &str, value: &Value, out: &mut Vec<(String, String)>) {
 }
 impl Snapshot {
     pub fn live() -> Result<Self, String> {
-        Self::decode(Inventory::load(&LoadOptions::default()).map_err(|e| e.to_string())?)
+        let mut snapshot =
+            Self::decode(Inventory::load(&LoadOptions::default()).map_err(|e| e.to_string())?)?;
+        snapshot.hostname = std::process::Command::new("hostname")
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .and_then(|output| String::from_utf8(output.stdout).ok())
+            .map(|name| name.trim().to_owned())
+            .filter(|name| !name.is_empty());
+        Ok(snapshot)
+    }
+    pub fn export_filename(&self) -> String {
+        let Some(hostname) = &self.hostname else {
+            return "smbios.json".into();
+        };
+        let hostname: String = hostname
+            .chars()
+            .take(200)
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        if hostname.is_empty() {
+            "smbios.json".into()
+        } else {
+            format!("smbios-{hostname}.json")
+        }
     }
     pub fn decode(inventory: Inventory) -> Result<Self, String> {
         if inventory.data.iter().next().is_none() {
@@ -170,6 +202,7 @@ impl Snapshot {
         let json = inventory.to_json(true).map_err(|e| e.to_string())?;
         Ok(Self {
             source: inventory.source,
+            hostname: None,
             records,
             json,
         })

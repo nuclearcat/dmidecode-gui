@@ -97,7 +97,15 @@ impl Connection {
                 ""
             }
         );
-        Snapshot::decode(inventory)
+        let mut snapshot = Snapshot::decode(inventory)?;
+        snapshot.hostname = Some(
+            self.target
+                .rsplit('@')
+                .next()
+                .unwrap_or(&self.target)
+                .to_owned(),
+        );
+        Ok(snapshot)
     }
 }
 
