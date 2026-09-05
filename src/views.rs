@@ -548,7 +548,12 @@ impl Explorer {
             .map(|(i, _)| i)
             .collect();
         if !self.selected.is_some_and(|i| visible.contains(&i)) {
-            self.selected = visible.first().copied();
+            self.selected = if self.category == 5 {
+                visible.iter().copied().find(|&i| s.records[i].kind == 16)
+            } else {
+                None
+            }
+            .or_else(|| visible.first().copied());
             self.tab = 0;
         }
         eyebrow(
@@ -655,7 +660,7 @@ impl Explorer {
         egui::ScrollArea::vertical()
             .id_salt(("record", index, self.tab))
             .show(ui, |ui| {
-                if self.category == 5 && self.query.is_empty() {
+                if self.category == 5 && self.query.is_empty() && r.kind != 17 {
                     self.memory_slots(ui, s);
                     ui.add_space(16.0);
                 }
