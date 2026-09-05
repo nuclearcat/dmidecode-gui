@@ -18,6 +18,7 @@ pub fn values(json: &Value) -> BTreeMap<String, String> {
         ("core_count", "core_count_2"),
         ("cores_enabled", "cores_enabled_2"),
         ("thread_count", "thread_count_2"),
+        ("processor_family", "processor_family_2"),
         ("speed", "extended_speed"),
         (
             "configured_memory_speed",
@@ -56,8 +57,12 @@ pub fn display_value(value: &Value) -> Option<String> {
         }
         Value::String(s) => Some(match s.as_str() {
             "NotInstalled" => "Not installed".into(),
-            "SeeExtendedSize" | "SeeExtendedSpeed" | "SeeCoreCount2" | "SeeCoresEnabled2"
-            | "SeeThreadCount2" => return None,
+            "SeeExtendedSize"
+            | "SeeExtendedSpeed"
+            | "SeeCoreCount2"
+            | "SeeCoresEnabled2"
+            | "SeeThreadCount2"
+            | "SeeProcessorFamily2" => return None,
             "Unknown" | "None" => "Not reported".into(),
             _ => s.trim().to_owned(),
         }),
@@ -102,6 +107,7 @@ pub fn display_value(value: &Value) -> Option<String> {
 }
 pub fn humanize(s: &str) -> String {
     match s {
+        "bit_64capable" => return "64-bit capable".into(),
         "Ddr" => return "DDR".into(),
         "Ddr2" => return "DDR2".into(),
         "Ddr3" => return "DDR3".into(),

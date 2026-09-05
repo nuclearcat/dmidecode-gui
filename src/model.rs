@@ -241,6 +241,35 @@ mod tests {
         assert_eq!(modules[1].name(), "DIMM_A2");
     }
     #[test]
+    fn server_demo_has_extended_thread_count_and_twelve_memory_channels() {
+        let snapshot = Snapshot::decode(Inventory::from_bytes(
+            include_bytes!("../tests/fixtures/server.bin").to_vec(),
+            None,
+        ))
+        .unwrap();
+        let cpu = snapshot.records.iter().find(|r| r.kind == 4).unwrap();
+        assert_eq!(cpu.name(), "AMD EPYC 9754");
+        assert_eq!(cpu.value("core_count"), "128");
+        assert_eq!(cpu.value("thread_count"), "256");
+        assert_eq!(cpu.value("processor_family"), "AMD Zen Processor Family");
+        let modules: Vec<_> = snapshot.records.iter().filter(|r| r.kind == 17).collect();
+        assert_eq!(modules.len(), 12);
+        assert_eq!(
+            modules.iter().filter_map(|r| r.capacity_kib).sum::<u64>(),
+            1536 * 1024 * 1024
+        );
+        assert!(modules
+            .iter()
+            .all(|r| r.value("configured_memory_speed") == "4800 MT/s"));
+        assert!(snapshot
+            .records
+            .iter()
+            .find(|r| r.kind == 1)
+            .unwrap()
+            .name()
+            .contains("Simulated"));
+    }
+    #[test]
     fn empty_input_is_rejected() {
         assert!(Snapshot::decode(Inventory::from_bytes(Vec::new(), None)).is_err());
     }
