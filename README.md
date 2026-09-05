@@ -10,6 +10,10 @@ you need the details.
 Built with **egui/eframe** and **dmidecode-rs**, it reads hardware through a shared
 Rust library and also opens saved binary dumps for offline inspection.
 
+The default light theme uses white surfaces, slate text, and restrained blue
+accents. Use **Dark mode** / **Light mode** in the toolbar to switch appearance
+without reloading your inventory.
+
 ## A server-sized preview
 
 ![DMI Explorer showing a simulated AMD EPYC server with 128 cores, 256 threads and 1536 GiB of memory](docs/overview.png)

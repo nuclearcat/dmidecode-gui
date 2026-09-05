@@ -61,7 +61,7 @@ impl Explorer {
                 ui.checkbox(&mut self.ssh_sudo, "Use sudo to read firmware on the remote host");
                 muted(ui, "Uses your local OpenSSH configuration, keys, and agent. Connect once in a terminal to verify an unfamiliar host's key.");
                 if self.ssh_sudo { muted(ui, "Sudo must allow the firmware read without a password. Interactive password prompts are not supported."); }
-                if let Some(error) = &self.ssh_error { ui.colored_label(egui::Color32::LIGHT_RED, error); }
+                if let Some(error) = &self.ssh_error { ui.colored_label(ui.visuals().error_fg_color, error); }
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     connect = ui.add_enabled(self.pending.is_none(), egui::Button::new("Fetch inventory")).clicked();
@@ -82,9 +82,18 @@ impl Explorer {
         }
     }
     fn toolbar_actions(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        let p = palette(ctx);
+        let dark = ctx.style().visuals.dark_mode;
+        if ui
+            .button(if dark { "Light mode" } else { "Dark mode" })
+            .on_hover_text("Switch between light and dark appearance")
+            .clicked()
+        {
+            crate::theme::apply(ctx, !dark);
+        }
         ui.add_enabled_ui(self.pending.is_none(), |ui| {
             if ui
-                .button(RichText::new("Fetch from remote host").color(ACCENT))
+                .button(RichText::new("Fetch from remote host").color(p.accent))
                 .clicked()
             {
                 self.ssh_open = true;
@@ -121,16 +130,17 @@ impl Explorer {
         }
     }
     pub(super) fn ui(&mut self, ctx: &egui::Context) {
+        let p = palette(ctx);
         self.poll();
         self.ssh_dialog(ctx);
         egui::TopBottomPanel::top("toolbar")
             .frame(
                 egui::Frame::new()
-                    .fill(SIDE)
+                    .fill(p.side)
                     .inner_margin(egui::Margin::symmetric(22, 14)),
             )
             .show(ctx, |ui| {
-                let compact = ui.available_width() < 1100.0;
+                let compact = ui.available_width() < 1220.0;
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("DMI Explorer").size(19.0).strong());
                     ui.add_space(22.0);
@@ -141,7 +151,7 @@ impl Explorer {
                             .desired_width(if compact {
                                 (ui.available_width() - 24.0).min(420.0)
                             } else {
-                                (ui.available_width() - 570.0).clamp(160.0, 320.0)
+                                (ui.available_width() - 680.0).clamp(160.0, 320.0)
                             })
                             .margin(egui::vec2(12.0, 9.0)),
                     );
@@ -168,7 +178,7 @@ impl Explorer {
         egui::TopBottomPanel::bottom("status")
             .frame(
                 egui::Frame::new()
-                    .fill(SIDE)
+                    .fill(p.side)
                     .inner_margin(egui::Margin::symmetric(22, 9)),
             )
             .show(ctx, |ui| {
@@ -183,7 +193,7 @@ impl Explorer {
                             }
                         }
                     } else if let Some(s) = &self.snapshot {
-                        ui.label(RichText::new("•").color(GREEN));
+                        ui.label(RichText::new("•").color(p.green));
                         ui.add(
                             egui::Label::new(
                                 RichText::new(if s.source.starts_with("SSH:") {
@@ -192,7 +202,7 @@ impl Explorer {
                                     "Snapshot loaded"
                                 })
                                 .size(12.0)
-                                .color(MUTED),
+                                .color(p.muted),
                             )
                             .truncate(),
                         )
@@ -200,7 +210,7 @@ impl Explorer {
                         ui.label(
                             RichText::new(format!("·  {} records", s.records.len()))
                                 .size(12.0)
-                                .color(MUTED),
+                                .color(p.muted),
                         );
                     } else {
                         muted(ui, "No inventory loaded");
@@ -213,7 +223,7 @@ impl Explorer {
                                 &self.notice
                             })
                             .size(12.0)
-                            .color(MUTED),
+                            .color(p.muted),
                         );
                     });
                 });
@@ -221,7 +231,7 @@ impl Explorer {
         egui::SidePanel::left("navigation")
             .exact_width(202.0)
             .resizable(false)
-            .frame(egui::Frame::new().fill(SIDE).inner_margin(14))
+            .frame(egui::Frame::new().fill(p.side).inner_margin(14))
             .show(ctx, |ui| {
                 ui.add_space(12.0);
                 if nav(ui, "Overview", !self.browsing, None, 0).clicked() {
@@ -280,9 +290,9 @@ impl Explorer {
                 }
             });
         let snapshot = self.snapshot.take();
-        egui::CentralPanel::default().frame(egui::Frame::new().fill(BG).inner_margin(28)).show(ctx, |ui| {
+        egui::CentralPanel::default().frame(egui::Frame::new().fill(p.bg).inner_margin(28)).show(ctx, |ui| {
             if let Some(error) = self.error.clone() {
-                egui::Frame::new().fill(egui::Color32::from_rgb(53,39,37)).corner_radius(8).inner_margin(16).show(ui, |ui| {
+                egui::Frame::new().fill(p.error).corner_radius(8).inner_margin(16).show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     ui.horizontal(|ui| { ui.strong("The inventory could not be loaded"); if ui.small_button("Dismiss").clicked() { self.error = None; } });
                     if snapshot.is_some() { muted(ui, "Your previous snapshot is still available below."); }
@@ -292,7 +302,7 @@ impl Explorer {
             }
             let Some(s) = &snapshot else {
                 ui.add_space(60.0);
-                card().show(ui, |ui| {
+                card(ui).show(ui, |ui| {
                     ui.set_width((ui.available_width() - 40.0).min(630.0));
                     eyebrow(ui, "HARDWARE INVENTORY");
                     ui.heading("Get to know your machine");
@@ -380,7 +390,7 @@ impl Explorer {
                 ),
             ];
             for (col, (label, value, sub, destination)) in cols.iter_mut().zip(metrics) {
-                card().show(col, |ui| {
+                card(col).show(col, |ui| {
                     ui.set_min_height(144.0);
                     ui.set_width(ui.available_width());
                     eyebrow(ui, label);
@@ -396,7 +406,7 @@ impl Explorer {
         });
         ui.add_space(16.0);
         ui.columns(2, |cols| {
-            card().show(&mut cols[0], |ui| {
+            card(&cols[0]).show(&mut cols[0], |ui| {
                 ui.set_width(ui.available_width());
                 ui.set_min_height(150.0);
                 ui.label(RichText::new("System identity").size(18.0).strong());
@@ -415,7 +425,7 @@ impl Explorer {
                     muted(ui, "System identity was not reported.");
                 }
             });
-            card().show(&mut cols[1], |ui| {
+            card(&cols[1]).show(&mut cols[1], |ui| {
                 ui.set_width(ui.available_width());
                 ui.set_min_height(150.0);
                 ui.label(RichText::new("Motherboard & firmware").size(18.0).strong());
@@ -445,7 +455,8 @@ impl Explorer {
         self.memory_slots(ui, s);
     }
     fn memory_slots(&mut self, ui: &mut egui::Ui, s: &Snapshot) {
-        card().show(ui, |ui| {
+        let p = palette(ui.ctx());
+        card(ui).show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Memory slots").size(18.0).strong());
@@ -478,15 +489,15 @@ impl Explorer {
                 ui.columns(columns, |cols| {
                     for (col, &(index, r)) in cols.iter_mut().zip(row) {
                         let color = if r.capacity_kib == Some(0) {
-                            MUTED
+                            p.muted
                         } else if r.capacity_kib.is_some() {
-                            GREEN
+                            p.green
                         } else {
-                            ACCENT
+                            p.accent
                         };
                         egui::Frame::new()
-                            .fill(SIDE)
-                            .stroke(egui::Stroke::new(1.0_f32, LINE))
+                            .fill(p.side)
+                            .stroke(egui::Stroke::new(1.0_f32, p.line))
                             .corner_radius(6)
                             .inner_margin(14)
                             .show(col, |ui| {
@@ -524,6 +535,7 @@ impl Explorer {
         });
     }
     fn browser(&mut self, ui: &mut egui::Ui, s: &Snapshot) {
+        let p = palette(ui.ctx());
         let query = self.query.to_lowercase();
         let visible: Vec<_> = s
             .records
@@ -571,7 +583,7 @@ impl Explorer {
         });
         ui.add_space(14.0);
         if visible.is_empty() {
-            card().show(ui, |ui| {
+            card(ui).show(ui, |ui| {
                 ui.strong("No matching hardware");
                 muted(ui, "Try another search or choose a different component.");
             });
@@ -647,7 +659,7 @@ impl Explorer {
                     self.memory_slots(ui, s);
                     ui.add_space(16.0);
                 }
-                card().show(ui, |ui| {
+                card(ui).show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     ui.horizontal_wrapped(|ui| {
                         ui.label(RichText::new(r.name()).size(22.0).strong());
@@ -656,9 +668,9 @@ impl Explorer {
                                 ui,
                                 memory,
                                 if r.capacity_kib == Some(0) {
-                                    MUTED
+                                    p.muted
                                 } else {
-                                    GREEN
+                                    p.green
                                 },
                             );
                         }
@@ -691,7 +703,7 @@ impl Explorer {
                             property_card(ui, r);
                         } else {
                             for (name, rows) in groups {
-                                card().show(ui, |ui| {
+                                card(ui).show(ui, |ui| {
                                     ui.set_width(ui.available_width());
                                     ui.label(RichText::new(name).size(17.0).strong());
                                     ui.add_space(8.0);
@@ -703,7 +715,7 @@ impl Explorer {
                     }
                     1 => property_card(ui, r),
                     _ => {
-                        card().show(ui, |ui| {
+                        card(ui).show(ui, |ui| {
                             ui.set_width(ui.available_width());
                             eyebrow(ui, "SMBIOS RECORD");
                             muted(ui, format!("Type {} · Handle 0x{:04X}", r.kind, r.handle));
@@ -743,7 +755,7 @@ impl Explorer {
     }
 }
 fn property_card(ui: &mut egui::Ui, r: &Record) {
-    card().show(ui, |ui| {
+    card(ui).show(ui, |ui| {
         ui.set_width(ui.available_width()); ui.label(RichText::new("Reported properties").size(17.0).strong());
         muted(ui,"Unreported values are omitted. The complete decoded record is available under Raw record."); ui.add_space(12.0);
         facts(ui,r.values.iter().map(|(k,v)|(humanize(k),v.as_str())));

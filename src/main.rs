@@ -53,6 +53,9 @@ fn main() -> eframe::Result {
             let mut app = Explorer::default();
             #[cfg(feature = "screenshots")]
             if std::env::var_os("DMI_SCREENSHOT_TO").is_some() {
+                if std::env::var("DMI_SCREENSHOT_THEME").as_deref() == Ok("dark") {
+                    theme::apply(&cc.egui_ctx, true);
+                }
                 if let Source::Dump(path) = &source {
                     match Inventory::from_dump(path)
                         .map_err(|e| e.to_string())
