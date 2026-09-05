@@ -40,8 +40,50 @@ impl Explorer {
             serde_json::from_slice(&output.stdout).map_err(|e| e.to_string())
         });
     }
+    fn ssh_dialog(&mut self, ctx: &egui::Context) {
+        if !self.ssh_open {
+            return;
+        }
+        let mut open = true;
+        let mut connect = false;
+        let mut close = false;
+        egui::Window::new("Connect over SSH")
+            .open(&mut open).collapsible(false).resizable(false).default_width(470.0)
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.label("Read a Linux server's hardware inventory directly over SSH.");
+                muted(ui, "No remote decoder, installation, or dump file required.");
+                ui.add_space(8.0);
+                ui.label("Host or SSH alias");
+                ui.add(egui::TextEdit::singleline(&mut self.ssh_target).hint_text("admin@server  or  production-host").desired_width(f32::INFINITY));
+                ui.label("Port (optional)");
+                ui.add(egui::TextEdit::singleline(&mut self.ssh_port).hint_text("Use SSH configuration").desired_width(190.0));
+                ui.checkbox(&mut self.ssh_sudo, "Use sudo to read firmware on the remote host");
+                muted(ui, "Uses your local OpenSSH configuration, keys, and agent. Connect once in a terminal to verify an unfamiliar host's key.");
+                if self.ssh_sudo { muted(ui, "Sudo must allow the firmware read without a password. Interactive password prompts are not supported."); }
+                if let Some(error) = &self.ssh_error { ui.colored_label(egui::Color32::LIGHT_RED, error); }
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    connect = ui.add_enabled(self.pending.is_none(), egui::Button::new("Connect and read")).clicked();
+                    close = ui.button("Cancel").clicked();
+                });
+            });
+        if !open || close {
+            self.ssh_open = false;
+        }
+        if connect {
+            match crate::ssh::Connection::new(&self.ssh_target, &self.ssh_port, self.ssh_sudo) {
+                Ok(connection) => {
+                    self.connect_ssh(ctx.clone(), connection);
+                    self.ssh_open = false;
+                }
+                Err(error) => self.ssh_error = Some(error),
+            }
+        }
+    }
     pub(super) fn ui(&mut self, ctx: &egui::Context) {
         self.poll();
+        self.ssh_dialog(ctx);
         egui::TopBottomPanel::top("toolbar")
             .frame(
                 egui::Frame::new()
@@ -89,6 +131,12 @@ impl Explorer {
                                 self.open_dump(ctx);
                             }
                             ui.menu_button("Read system", |ui| {
+                                if ui.button("Connect over SSH…").clicked() {
+                                    self.ssh_open = true;
+                                    self.ssh_error = None;
+                                    ui.close();
+                                }
+                                ui.separator();
                                 if ui.button("Read local firmware").clicked() {
                                     self.load(ctx.clone(), Snapshot::live);
                                     ui.close();
@@ -113,11 +161,28 @@ impl Explorer {
                 ui.horizontal(|ui| {
                     if self.pending.is_some() {
                         ui.spinner();
-                        muted(ui, "Reading firmware…");
+                        muted(ui, &self.loading_label);
+                        if let Some(cancel) = &self.ssh_cancel {
+                            if ui.small_button("Cancel").clicked() {
+                                cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+                                self.loading_label = "Cancelling SSH read…".into();
+                            }
+                        }
                     } else if let Some(s) = &self.snapshot {
                         ui.label(RichText::new("•").color(GREEN));
-                        ui.label(RichText::new("Snapshot loaded").size(12.0).color(MUTED))
-                            .on_hover_text(&s.source);
+                        ui.add(
+                            egui::Label::new(
+                                RichText::new(if s.source.starts_with("SSH:") {
+                                    &s.source
+                                } else {
+                                    "Snapshot loaded"
+                                })
+                                .size(12.0)
+                                .color(MUTED),
+                            )
+                            .truncate(),
+                        )
+                        .on_hover_text(&s.source);
                         ui.label(
                             RichText::new(format!("·  {} records", s.records.len()))
                                 .size(12.0)
@@ -228,6 +293,7 @@ impl Explorer {
                             #[cfg(not(target_os = "linux"))]
                             if ui.button("Read system").clicked() { self.load(ctx.clone(), Snapshot::live); }
                             if ui.button("Open dump…").clicked() { self.open_dump(ctx); }
+                            if ui.button("Connect over SSH…").clicked() { self.ssh_open = true; self.ssh_error = None; }
                         });
                     });
                 });

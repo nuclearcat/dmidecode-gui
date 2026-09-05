@@ -1,5 +1,6 @@
 mod model;
 mod presentation;
+mod ssh;
 mod theme;
 mod views;
 use dmidecode_rs::Inventory;
@@ -24,14 +25,13 @@ fn main() -> eframe::Result {
         return Ok(());
     }
     if args.first().is_some_and(|a| a == "--help" || a == "-h") {
-        println!("dmidecode-gui [DUMP_FILE]\nOpen an SMBIOS dump or read the local system.");
+        println!("dmidecode-gui [DUMP_FILE]\ndmidecode-gui --ssh USER@HOST [--port PORT] [--sudo]\nOpen a dump, read the local system, or fetch Linux firmware over SSH.");
         return Ok(());
     }
-    if args.len() > 1 {
-        eprintln!("Usage: dmidecode-gui [DUMP_FILE]");
+    let source = parse_source(&args).unwrap_or_else(|error| {
+        eprintln!("{error}\nUse --help for usage.");
         std::process::exit(2);
-    }
-    let path = args.first().map(PathBuf::from);
+    });
     #[cfg(feature = "screenshots")]
     let window_width = std::env::var("DMI_SCREENSHOT_WIDTH")
         .ok()
@@ -53,7 +53,7 @@ fn main() -> eframe::Result {
             let mut app = Explorer::default();
             #[cfg(feature = "screenshots")]
             if std::env::var_os("DMI_SCREENSHOT_TO").is_some() {
-                if let Some(path) = &path {
+                if let Source::Dump(path) = &source {
                     match Inventory::from_dump(path)
                         .map_err(|e| e.to_string())
                         .and_then(Snapshot::decode)
@@ -66,18 +66,66 @@ fn main() -> eframe::Result {
                     app.category = page.parse::<usize>().unwrap_or(0).min(7);
                     app.browsing = true;
                 }
+                app.ssh_open = std::env::var_os("DMI_SCREENSHOT_SSH").is_some();
                 cc.egui_ctx.request_repaint();
                 return Ok(Box::new(app));
             }
-            app.load(cc.egui_ctx.clone(), move || match path {
-                Some(path) => {
+            match source {
+                Source::Ssh(connection) => app.connect_ssh(cc.egui_ctx.clone(), connection),
+                Source::Dump(path) => app.load(cc.egui_ctx.clone(), move || {
                     Snapshot::decode(Inventory::from_dump(path).map_err(|e| e.to_string())?)
-                }
-                None => Snapshot::live(),
-            });
+                }),
+                Source::Local => app.load(cc.egui_ctx.clone(), Snapshot::live),
+            }
             Ok(Box::new(app))
         }),
     )
+}
+
+enum Source {
+    Local,
+    Dump(PathBuf),
+    Ssh(ssh::Connection),
+}
+fn parse_source(args: &[std::ffi::OsString]) -> Result<Source, String> {
+    if args.is_empty() {
+        return Ok(Source::Local);
+    }
+    if args[0] != "--ssh" {
+        if args.len() == 1 && !args[0].to_string_lossy().starts_with('-') {
+            return Ok(Source::Dump(PathBuf::from(&args[0])));
+        }
+        return Err("Expected a dump filename or --ssh USER@HOST [--port PORT] [--sudo].".into());
+    }
+    let target = args
+        .get(1)
+        .and_then(|s| s.to_str())
+        .ok_or("--ssh requires a host or user@host.")?;
+    let mut port = None;
+    let mut sudo = false;
+    let mut i = 2;
+    while i < args.len() {
+        match args[i].to_str() {
+            Some("--sudo") if !sudo => sudo = true,
+            Some("--port") if port.is_none() => {
+                i += 1;
+                port = Some(
+                    args.get(i)
+                        .and_then(|s| s.to_str())
+                        .ok_or("--port requires a number.")?,
+                );
+            }
+            _ => {
+                return Err("Unknown or repeated SSH option. Use --port PORT and/or --sudo.".into())
+            }
+        }
+        i += 1;
+    }
+    Ok(Source::Ssh(ssh::Connection::new(
+        target,
+        port.unwrap_or(""),
+        sudo,
+    )?))
 }
 
 #[derive(Default)]
@@ -91,10 +139,28 @@ struct Explorer {
     selected: Option<usize>,
     tab: usize,
     browsing: bool,
+    ssh_open: bool,
+    ssh_target: String,
+    ssh_port: String,
+    ssh_sudo: bool,
+    ssh_error: Option<String>,
+    ssh_cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    loading_label: String,
     #[cfg(feature = "screenshots")]
     screenshot_frames: u32,
 }
 impl Explorer {
+    fn connect_ssh(&mut self, ctx: egui::Context, connection: ssh::Connection) {
+        self.ssh_target = connection.target.clone();
+        self.ssh_port = connection.port.map(|p| p.to_string()).unwrap_or_default();
+        self.ssh_sudo = connection.sudo;
+        let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let worker_cancel = cancel.clone();
+        let label = format!("Reading {} over SSH…", connection.target);
+        self.load(ctx, move || connection.fetch(worker_cancel));
+        self.ssh_cancel = Some(cancel);
+        self.loading_label = label;
+    }
     fn load(
         &mut self,
         ctx: egui::Context,
@@ -104,6 +170,7 @@ impl Explorer {
         self.pending = Some(rx);
         self.error = None;
         self.notice.clear();
+        self.loading_label = "Reading firmware…".into();
         std::thread::spawn(move || {
             let _ = tx.send(job());
             ctx.request_repaint();
@@ -120,6 +187,8 @@ impl Explorer {
             };
             if let Some(result) = result {
                 self.pending = None;
+                self.ssh_cancel = None;
+                self.loading_label.clear();
                 match result {
                     Ok(snapshot) => {
                         self.snapshot = Some(snapshot);
@@ -128,6 +197,13 @@ impl Explorer {
                     Err(error) => self.error = Some(error),
                 }
             }
+        }
+    }
+}
+impl Drop for Explorer {
+    fn drop(&mut self) {
+        if let Some(cancel) = &self.ssh_cancel {
+            cancel.store(true, std::sync::atomic::Ordering::Relaxed);
         }
     }
 }
@@ -163,6 +239,36 @@ impl eframe::App for Explorer {
 #[cfg(test)]
 mod ui_tests {
     use super::*;
+    #[test]
+    fn parses_ssh_launch_options_and_keeps_dump_paths() {
+        let args = |s: &[&str]| s.iter().map(std::ffi::OsString::from).collect::<Vec<_>>();
+        assert!(
+            matches!(parse_source(&args(&["--ssh","admin@rack","--sudo","--port","2222"])).unwrap(), Source::Ssh(c) if c.sudo && c.port == Some(2222) && c.target == "admin@rack")
+        );
+        assert!(matches!(
+            parse_source(&args(&["dump with spaces.bin"])).unwrap(),
+            Source::Dump(_)
+        ));
+        for bad in [
+            &["--ssh"][..],
+            &["--ssh", "host", "--port"],
+            &["--sudo"],
+            &["--ssh", "host", "--sudo", "--sudo"],
+        ] {
+            assert!(parse_source(&args(bad)).is_err());
+        }
+    }
+    #[test]
+    fn renders_ssh_dialog_without_connecting() {
+        let ctx = egui::Context::default();
+        theme::setup(&ctx);
+        let mut app = Explorer::default();
+        app.ssh_open = true;
+        app.ssh_sudo = true;
+        let output = ctx.run(egui::RawInput::default(), |ctx| app.ui(ctx));
+        assert!(!output.shapes.is_empty());
+        assert!(app.pending.is_none());
+    }
     #[test]
     fn renders_empty_error_and_filtered_record_views() {
         let ctx = egui::Context::default();
@@ -213,16 +319,14 @@ mod ui_tests {
     fn workstation_pages_render_at_supported_widths() {
         let ctx = egui::Context::default();
         theme::setup(&ctx);
-        let mut app = Explorer {
-            snapshot: Some(
-                Snapshot::decode(Inventory::from_bytes(
-                    include_bytes!("../tests/fixtures/workstation.bin").to_vec(),
-                    None,
-                ))
-                .unwrap(),
-            ),
-            ..Default::default()
-        };
+        let mut app = Explorer::default();
+        app.snapshot = Some(
+            Snapshot::decode(Inventory::from_bytes(
+                include_bytes!("../tests/fixtures/workstation.bin").to_vec(),
+                None,
+            ))
+            .unwrap(),
+        );
         for width in [900.0, 1280.0] {
             for page in 0usize..=8 {
                 app.browsing = page > 0;

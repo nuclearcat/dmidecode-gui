@@ -51,6 +51,8 @@ JSON and binary record remain available in the raw inspector.
   strings, and supported vendor-specific OEM data.
 - **Search and copy** — find models, serials, handles, or displayed values such
   as “128 GiB”; copy individual values or a complete summary.
+- **Remote servers** — fetch Linux firmware over SSH using existing keys and
+  host aliases, with no remote installation.
 - **Offline inspection and export** — open a saved binary dump and export the
   decoded inventory as JSON.
 
@@ -73,6 +75,46 @@ Built and tested with Rust 1.97.1. Requires a desktop graphics session. On Linux
 Wayland and X11 are supported through OpenGL. File dialogs use the desktop portal
 (`xdg-desktop-portal` and your desktop's portal backend). A C linker and platform
 development libraries are required to build eframe.
+
+## Remote Linux servers over SSH
+
+Choose **Read system → Connect over SSH…**, enter a host alias or `user@host`,
+and select **Connect and read**. An optional port overrides your SSH configuration.
+Enable **Use sudo** if the remote account needs elevated access to firmware.
+
+You can also launch a remote inventory directly:
+
+```sh
+cargo run -- --ssh admin@server
+cargo run -- --ssh production-alias --port 2222 --sudo
+```
+
+The GUI uses your local OpenSSH client, `~/.ssh/config`, keys, SSH agent, and
+configured jump hosts. Authentication must work without an interactive password
+prompt. For a new host, connect once in a terminal and verify its host key first;
+the GUI does not automatically accept unknown keys.
+
+The only remote command is:
+
+```sh
+cat /sys/firmware/dmi/tables/smbios_entry_point /sys/firmware/dmi/tables/DMI
+# With Use sudo enabled:
+sudo -n cat /sys/firmware/dmi/tables/smbios_entry_point /sys/firmware/dmi/tables/DMI
+```
+
+No decoder, agent, script upload, remote temporary file, base64 conversion, or
+listening port is needed. SSH carries the binary stdout directly into memory.
+The local decoder validates the entry point, preserves the SMBIOS version, and
+checks record boundaries before displaying the remote snapshot.
+
+The remote Linux kernel must expose these firmware files, and the SSH account
+must be allowed to read them. When using sudo, that exact read must be permitted
+without a password. Systems requiring a TTY or interactive sudo are not supported.
+
+Reads have a 45-second overall timeout and can be cancelled in the status bar.
+Failed reads keep the previous inventory visible. Remote transfers are limited
+to 16 MiB; SSH diagnostics are limited to 32 KiB. The status bar identifies the
+remote source, and exporting JSON remains an explicit action.
 
 ## Navigation and data
 
