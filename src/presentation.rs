@@ -106,7 +106,58 @@ pub fn display_value(value: &Value) -> Option<String> {
     }
 }
 pub fn humanize(s: &str) -> String {
+    // SMBIOS identifiers include acronyms and compressed units that cannot be
+    // recovered by splitting underscores or camel case. Keep explicit labels.
     match s {
+        "bios_characteristics_not_supported" => return "BIOS characteristics not supported".into(),
+        "bios_upgradeable" => return "BIOS upgradeable".into(),
+        "bios_shadowing_allowed" => return "BIOS shadowing allowed".into(),
+        "bios_rom_socketed" => return "BIOS ROM socketed".into(),
+        "vlvesa_supported" => return "VESA local bus supported".into(),
+        "escd_support_available" => return "ESCD support available".into(),
+        "boot_from_cdsupported" => return "Boot from CD supported".into(),
+        "boot_from_pcmcia_supported" => return "Boot from PCMCIA supported".into(),
+        "edd_specification_supported" => return "EDD specification supported".into(),
+        "floppy_nec_japanese_supported" => {
+            return "NEC 9800 Japanese 3.5-inch 1.2 MB floppy services supported".into()
+        }
+        "floppy_toshiba_japanese_supported" => {
+            return "Toshiba Japanese 3.5-inch 1.2 MB floppy services supported".into()
+        }
+        "floppy_525_360_supported" => return "5.25-inch 360 KB floppy services supported".into(),
+        "floppy_525_12_supported" => return "5.25-inch 1.2 MB floppy services supported".into(),
+        "floppy_35_720_supported" => return "3.5-inch 720 KB floppy services supported".into(),
+        "floppy_35_288_supported" => return "3.5-inch 2.88 MB floppy services supported".into(),
+        "keyboard_8042services_supported" => return "8042 keyboard services supported".into(),
+        "cga_mono_video_services_supported" => {
+            return "CGA/monochrome video services supported".into()
+        }
+        "nec_pc_98supported" => return "NEC PC-98 supported".into(),
+        "acpi_is_supported" => return "ACPI supported".into(),
+        "usb_legacy_is_supported" => return "Legacy USB supported".into(),
+        "agp_is_supported" => return "AGP supported".into(),
+        "i2oboot_is_supported" => return "I2O boot supported".into(),
+        "ls120super_disk_boot_is_supported" => return "LS-120 SuperDisk boot supported".into(),
+        "atapi_zip_drive_boot_is_supported" => return "ATAPI ZIP drive boot supported".into(),
+        "boot_1394is_supported" => return "IEEE 1394 boot supported".into(),
+        "smart_battery_is_supported" => return "Smart battery supported".into(),
+        "bios_boot_specification_is_supported" => {
+            return "BIOS Boot Specification supported".into()
+        }
+        "fkey_initiated_network_boot_is_supported" => {
+            return "Function-key-initiated network boot supported".into()
+        }
+        "smbios_table_describes_avirtual_machine" => {
+            return "SMBIOS table describes a virtual machine".into()
+        }
+        "uefi_specification_is_supported" => return "UEFI specification supported".into(),
+        "isa_supported" => return "ISA supported".into(),
+        "mca_supported" => return "MCA supported".into(),
+        "eisa_supported" => return "EISA supported".into(),
+        "pci_supported" => return "PCI supported".into(),
+        "pcmcia_supported" => return "PCMCIA supported".into(),
+        "apm_supported" => return "APM supported".into(),
+
         "bit_64capable" => return "64-bit capable".into(),
         "Ddr" => return "DDR".into(),
         "Ddr2" => return "DDR2".into(),
