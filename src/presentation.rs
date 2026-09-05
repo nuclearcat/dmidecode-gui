@@ -212,6 +212,12 @@ pub fn humanize(s: &str) -> String {
     // SMBIOS identifiers include acronyms and compressed units that cannot be
     // recovered by splitting underscores or camel case. Keep explicit labels.
     match s {
+        "Usb" => return "USB".into(),
+        "Sata" => return "SATA".into(),
+        "Sas" => return "SAS".into(),
+        "ScsiPort" => return "SCSI port".into(),
+        "MidiPort" => return "MIDI port".into(),
+        "Mfdp" => return "Multi-function DisplayPort".into(),
         "pci_address" => return "PCI address".into(),
         "system_slot_type" => return "Slot type".into(),
         "slot_data_bus_width" => return "Electrical width".into(),
@@ -336,6 +342,40 @@ pub fn humanize(s: &str) -> String {
 }
 
 impl Record {
+    pub fn picker_label(&self) -> String {
+        let keys: &[&str] = match self.kind {
+            8 => &[
+                "external_reference_designator",
+                "internal_reference_designator",
+                "port_type",
+                "external_connector_type",
+                "internal_connector_type",
+            ],
+            9 => &["slot_designation", "system_slot_type"],
+            _ => return format!("{} · {} · 0x{:04X}", self.name(), self.title, self.handle),
+        };
+        let mut parts = Vec::new();
+        for key in keys {
+            let value = self.value(key);
+            if !matches!(
+                value,
+                "" | "Not reported"
+                    | "None"
+                    | "No connector"
+                    | "No Connector"
+                    | "No port"
+                    | "No Port"
+                    | "Other"
+            ) && !parts.contains(&value)
+            {
+                parts.push(value);
+            }
+        }
+        if parts.is_empty() {
+            parts.push(&self.title);
+        }
+        format!("{} · 0x{:04X}", parts.join(" · "), self.handle)
+    }
     pub fn value(&self, key: &str) -> &str {
         self.values
             .get(key)

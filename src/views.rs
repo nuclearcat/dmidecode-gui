@@ -628,23 +628,15 @@ impl Explorer {
         } else if visible.len() > 1 {
             egui::ComboBox::from_id_salt("record-picker")
                 .width(ui.available_width().min(620.0))
-                .selected_text(self.selected.map_or("Select a record".into(), |i| {
-                    format!(
-                        "{}  ·  {}  ·  0x{:04X}",
-                        s.records[i].name(),
-                        s.records[i].title,
-                        s.records[i].handle
-                    )
-                }))
+                .selected_text(
+                    self.selected
+                        .map_or("Select a record".into(), |i| s.records[i].picker_label()),
+                )
                 .show_ui(ui, |ui| {
                     for &i in &visible {
                         let r = &s.records[i];
                         if ui
-                            .selectable_value(
-                                &mut self.selected,
-                                Some(i),
-                                format!("{} · {} · 0x{:04X}", r.name(), r.title, r.handle),
-                            )
+                            .selectable_value(&mut self.selected, Some(i), r.picker_label())
                             .changed()
                         {
                             self.tab = 0;
