@@ -31,7 +31,78 @@ pub fn values(json: &Value) -> BTreeMap<String, String> {
             }
         }
     }
+    if let Some(slot) = json.get("SystemSlot") {
+        slot_values(slot, &mut result);
+    }
     result
+}
+
+fn slot_values(slot: &Value, result: &mut BTreeMap<String, String>) {
+    // Keep the complete original representation in Raw record/export.
+    let number = |key: &str| slot[key]["Number"].as_u64();
+    let segment = if slot["segment_group_number"] == "SingleSegment" {
+        Some(0)
+    } else {
+        number("segment_group_number").filter(|n| *n < 65535)
+    };
+    let bus = number("bus_number").filter(|n| *n < 255);
+    let device = slot["device_function_number"]["Number"]["device"]
+        .as_u64()
+        .filter(|n| *n < 32);
+    let function = slot["device_function_number"]["Number"]["function"]
+        .as_u64()
+        .filter(|n| *n < 8);
+    if let (Some(segment), Some(bus), Some(device), Some(function)) =
+        (segment, bus, device, function)
+    {
+        result.insert(
+            "pci_address".into(),
+            format!("{segment:04x}:{bus:02x}:{device:02x}.{function:x}"),
+        );
+    }
+    if let (Some(device), Some(function)) = (device, function) {
+        result.insert(
+            "device_function_number".into(),
+            format!("{device:02x}.{function:x}"),
+        );
+    }
+    if let Some(segment) = segment {
+        result.insert("segment_group_number".into(), format!("{segment:04x}"));
+    }
+    if let Some(bus) = bus {
+        result.insert("bus_number".into(), format!("{bus:02x}"));
+    }
+    let pcie = slot["system_slot_type"]["value"]
+        .get("PciExpress")
+        .is_some();
+    if pcie {
+        if let Some(id) = slot["slot_id"].as_array().filter(|id| id.len() == 2) {
+            if let (Some(low), Some(0)) = (id[0].as_u64(), id[1].as_u64()) {
+                result.insert("slot_id".into(), low.to_string());
+            }
+        }
+    }
+    if let Some(pitch) = slot["slot_pitch"].as_u64() {
+        result.insert(
+            "slot_pitch".into(),
+            if pitch == 0 {
+                "Not reported".into()
+            } else {
+                let mm = format!("{:.2}", pitch as f64 / 100.0);
+                format!("{} mm", mm.trim_end_matches('0').trim_end_matches('.'))
+            },
+        );
+    }
+    if pcie && slot["slot_information"] == 0 {
+        result.insert("slot_information".into(), "Not reported".into());
+    }
+    let features: Vec<_> = ["slot_characteristics_1", "slot_characteristics_2"]
+        .iter()
+        .filter_map(|key| result.get(*key).cloned())
+        .collect();
+    if !features.is_empty() {
+        result.insert("slot_features".into(), features.join(", "));
+    }
 }
 fn with_unit(key: &str, value: String) -> String {
     if value.parse::<u64>().is_ok() {
@@ -69,6 +140,17 @@ pub fn display_value(value: &Value) -> Option<String> {
         Value::Bool(v) => Some(if *v { "Yes" } else { "No" }.into()),
         Value::Number(n) => Some(n.to_string()),
         Value::Object(map) => {
+            if let Some(parts) = map.get("PciExpress").and_then(Value::as_array) {
+                return Some(
+                    parts
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .filter(|s| *s != "UndefinedSlotWidth")
+                        .map(humanize)
+                        .collect::<Vec<_>>()
+                        .join(" "),
+                );
+            }
             if let Some(v) = map.get("value") {
                 return display_value(v).map(|s| humanize(&s));
             }
@@ -80,7 +162,7 @@ pub fn display_value(value: &Value) -> Option<String> {
                     "Kilobytes" => format!("{v} KiB"),
                     "MTs" => format!("{v} MT/s"),
                     "MHz" => format!("{v} MHz"),
-                    "Count" | "Cores" | "Threads" | "Uuid" => v,
+                    "Count" | "Cores" | "Threads" | "Uuid" | "Number" => v,
                     _ => format!("{v} {}", humanize(unit)),
                 });
             }
@@ -109,6 +191,41 @@ pub fn humanize(s: &str) -> String {
     // SMBIOS identifiers include acronyms and compressed units that cannot be
     // recovered by splitting underscores or camel case. Keep explicit labels.
     match s {
+        "pci_address" => return "PCI address".into(),
+        "system_slot_type" => return "Slot type".into(),
+        "slot_data_bus_width" => return "Electrical width".into(),
+        "slot_physical_width" => return "Physical width".into(),
+        "slot_features" => return "Supported features".into(),
+        "supports_hot_plug_devices" => return "Hot-plug supported".into(),
+        "supports_power_management_event" => {
+            return "Power management events (PME) supported".into()
+        }
+        "supports_suprise_removal" => return "Surprise removal supported".into(),
+        "supports_smbus_signal" => return "SMBus supported".into(),
+        "supports_bifurcation" => return "PCIe bifurcation supported".into(),
+        "provides33_volts" => return "3.3 V supplied".into(),
+        "provides5_volts" => return "5 V supplied".into(),
+        "supports_pc_card16" => return "16-bit PC Card supported".into(),
+        "supports_card_bus" => return "CardBus supported".into(),
+        "flexbus_slot_cxl10_capable" => return "CXL 1.0 capable".into(),
+        "flexbus_slot_cxl20_capable" => return "CXL 2.0 capable".into(),
+        "flexbus_slot_cxl30_capable" => return "CXL 3.0 capable".into(),
+        "SingleSegment" => return "Single segment".into(),
+        "NotApplicable" => return "Not applicable".into(),
+        "Sff8639" => return "SFF-8639".into(),
+        "PCIExpressGen1" => return "PCIe 1.0".into(),
+        "PCIExpressGen2" => return "PCIe 2.0".into(),
+        "PCIExpressGen3" => return "PCIe 3.0".into(),
+        "PCIExpressGen4" => return "PCIe 4.0".into(),
+        "PCIExpressGen5" => return "PCIe 5.0".into(),
+        "PCIExpressGen6" => return "PCIe 6.0".into(),
+        "X1" => return "x1".into(),
+        "X2" => return "x2".into(),
+        "X4" => return "x4".into(),
+        "X8" => return "x8".into(),
+        "X12" => return "x12".into(),
+        "X16" => return "x16".into(),
+        "X32" => return "x32".into(),
         "bios_characteristics_not_supported" => return "BIOS characteristics not supported".into(),
         "bios_upgradeable" => return "BIOS upgradeable".into(),
         "bios_shadowing_allowed" => return "BIOS shadowing allowed".into(),
@@ -229,6 +346,11 @@ impl Record {
                 self.value("socket_designation"),
                 self.value("current_speed")
             ),
+            9 => format!(
+                "{} · {}",
+                self.value("system_slot_type"),
+                self.value("current_usage")
+            ),
             17 => format!(
                 "{} · {}",
                 self.memory.as_deref().unwrap_or("Capacity unknown"),
@@ -345,10 +467,14 @@ impl Record {
                 "Expansion slot",
                 &[
                     ("Designation", "slot_designation"),
-                    ("Type", "slot_type"),
+                    ("Type", "system_slot_type"),
                     ("Usage", "current_usage"),
-                    ("Width", "slot_data_bus_width"),
+                    ("Electrical width", "slot_data_bus_width"),
+                    ("Physical width", "slot_physical_width"),
                     ("Length", "slot_length"),
+                    ("Slot ID", "slot_id"),
+                    ("PCI address", "pci_address"),
+                    ("Supported features", "slot_features"),
                 ],
             )],
             _ => vec![],
@@ -387,6 +513,33 @@ fn compact(n: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn slot_details_decode_nested_enums_and_pci_address() {
+        let mut json = serde_json::json!({"SystemSlot": {
+            "system_slot_type": {"raw":166,"value":{"PciExpress":["PCIExpressGen1","X1"]}},
+            "slot_data_bus_width": {"raw":8,"value":"X1"},
+            "segment_group_number":"SingleSegment", "bus_number":{"Number":0},
+            "device_function_number":{"Number":{"device":28,"function":3}},
+            "slot_id":[4,0], "slot_pitch":1255,
+            "slot_characteristics_2":{"raw":3,"supports_hot_plug_devices":true,
+                "supports_power_management_event":true,"supports_bifurcation":false}
+        }});
+        let shown = values(&json);
+        assert_eq!(shown["system_slot_type"], "PCIe 1.0 x1");
+        assert_eq!(shown["slot_data_bus_width"], "x1");
+        assert_eq!(shown["pci_address"], "0000:00:1c.3");
+        assert_eq!(shown["slot_id"], "4");
+        assert_eq!(shown["slot_pitch"], "12.55 mm");
+        assert_eq!(
+            shown["slot_features"],
+            "Hot-plug supported, Power management events (PME) supported"
+        );
+        json["SystemSlot"]["bus_number"] = serde_json::json!("NotApplicable");
+        json["SystemSlot"]["slot_pitch"] = serde_json::json!(0);
+        let shown = values(&json);
+        assert!(!shown.contains_key("pci_address"));
+        assert_eq!(shown["slot_pitch"], "Not reported");
+    }
     #[test]
     fn enums_units_and_missing_strings_are_readable() {
         assert_eq!(
