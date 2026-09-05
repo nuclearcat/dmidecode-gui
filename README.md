@@ -78,8 +78,8 @@ development libraries are required to build eframe.
 
 ## Remote Linux servers over SSH
 
-Choose **Read system → Connect over SSH…**, enter a host alias or `user@host`,
-and select **Connect and read**. An optional port overrides your SSH configuration.
+Click **Fetch from remote host** on the main toolbar, enter a host alias or
+`user@host`, and select **Fetch inventory**. An optional port overrides your SSH configuration.
 Enable **Use sudo** if the remote account needs elevated access to firmware.
 
 You can also launch a remote inventory directly:

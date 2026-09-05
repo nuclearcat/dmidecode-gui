@@ -47,7 +47,7 @@ impl Explorer {
         let mut open = true;
         let mut connect = false;
         let mut close = false;
-        egui::Window::new("Connect over SSH")
+        egui::Window::new("Fetch from remote host")
             .open(&mut open).collapsible(false).resizable(false).default_width(470.0)
             .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
             .show(ctx, |ui| {
@@ -64,7 +64,7 @@ impl Explorer {
                 if let Some(error) = &self.ssh_error { ui.colored_label(egui::Color32::LIGHT_RED, error); }
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    connect = ui.add_enabled(self.pending.is_none(), egui::Button::new("Connect and read")).clicked();
+                    connect = ui.add_enabled(self.pending.is_none(), egui::Button::new("Fetch inventory")).clicked();
                     close = ui.button("Cancel").clicked();
                 });
             });
@@ -81,6 +81,45 @@ impl Explorer {
             }
         }
     }
+    fn toolbar_actions(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        ui.add_enabled_ui(self.pending.is_none(), |ui| {
+            if ui
+                .button(RichText::new("Fetch from remote host").color(ACCENT))
+                .clicked()
+            {
+                self.ssh_open = true;
+                self.ssh_error = None;
+            }
+            ui.menu_button("Read system", |ui| {
+                if ui.button("Read local firmware").clicked() {
+                    self.load(ctx.clone(), Snapshot::live);
+                    ui.close();
+                }
+                #[cfg(target_os = "linux")]
+                if ui.button("Read with administrator access…").clicked() {
+                    self.authenticate(ctx);
+                    ui.close();
+                }
+            });
+            if ui.button("Open dump…").clicked() {
+                self.open_dump(ctx);
+            }
+        });
+        if ui
+            .add_enabled(self.snapshot.is_some(), egui::Button::new("Export…"))
+            .clicked()
+        {
+            if let Some(path) = rfd::FileDialog::new()
+                .set_file_name("smbios.json")
+                .save_file()
+            {
+                match std::fs::write(&path, &self.snapshot.as_ref().unwrap().json) {
+                    Ok(()) => self.notice = "Inventory exported".into(),
+                    Err(e) => self.error = Some(e.to_string()),
+                }
+            }
+        }
+    }
     pub(super) fn ui(&mut self, ctx: &egui::Context) {
         self.poll();
         self.ssh_dialog(ctx);
@@ -91,6 +130,7 @@ impl Explorer {
                     .inner_margin(egui::Margin::symmetric(22, 14)),
             )
             .show(ctx, |ui| {
+                let compact = ui.available_width() < 1100.0;
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("DMI Explorer").size(19.0).strong());
                     ui.add_space(22.0);
@@ -98,7 +138,11 @@ impl Explorer {
                         egui::TextEdit::singleline(&mut self.query)
                             .id_source("global-search")
                             .hint_text("Search hardware…")
-                            .desired_width((ui.available_width() - 400.0).clamp(160.0, 320.0))
+                            .desired_width(if compact {
+                                (ui.available_width() - 24.0).min(420.0)
+                            } else {
+                                (ui.available_width() - 570.0).clamp(160.0, 320.0)
+                            })
                             .margin(egui::vec2(12.0, 9.0)),
                     );
                     if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::F)) {
@@ -111,45 +155,15 @@ impl Explorer {
                     if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
                         self.query.clear();
                     }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui
-                            .add_enabled(self.snapshot.is_some(), egui::Button::new("Export…"))
-                            .clicked()
-                        {
-                            if let Some(path) = rfd::FileDialog::new()
-                                .set_file_name("smbios.json")
-                                .save_file()
-                            {
-                                match std::fs::write(&path, &self.snapshot.as_ref().unwrap().json) {
-                                    Ok(()) => self.notice = "Inventory exported".into(),
-                                    Err(e) => self.error = Some(e.to_string()),
-                                }
-                            }
-                        }
-                        ui.add_enabled_ui(self.pending.is_none(), |ui| {
-                            if ui.button("Open dump…").clicked() {
-                                self.open_dump(ctx);
-                            }
-                            ui.menu_button("Read system", |ui| {
-                                if ui.button("Connect over SSH…").clicked() {
-                                    self.ssh_open = true;
-                                    self.ssh_error = None;
-                                    ui.close();
-                                }
-                                ui.separator();
-                                if ui.button("Read local firmware").clicked() {
-                                    self.load(ctx.clone(), Snapshot::live);
-                                    ui.close();
-                                }
-                                #[cfg(target_os = "linux")]
-                                if ui.button("Read with administrator access…").clicked() {
-                                    self.authenticate(ctx);
-                                    ui.close();
-                                }
-                            });
+                    if !compact {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            self.toolbar_actions(ui, ctx)
                         });
-                    });
+                    }
                 });
+                if compact {
+                    ui.horizontal_wrapped(|ui| self.toolbar_actions(ui, ctx));
+                }
             });
         egui::TopBottomPanel::bottom("status")
             .frame(
@@ -293,7 +307,7 @@ impl Explorer {
                             #[cfg(not(target_os = "linux"))]
                             if ui.button("Read system").clicked() { self.load(ctx.clone(), Snapshot::live); }
                             if ui.button("Open dump…").clicked() { self.open_dump(ctx); }
-                            if ui.button("Connect over SSH…").clicked() { self.ssh_open = true; self.ssh_error = None; }
+                            if ui.button("Fetch from remote host").clicked() { self.ssh_open = true; self.ssh_error = None; }
                         });
                     });
                 });
