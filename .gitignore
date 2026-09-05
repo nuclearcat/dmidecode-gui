@@ -1,0 +1,25 @@
+# Rust build output (including nested crates)
+**/target/
+
+# Local editor, OS, and agent settings
+.idea/
+.vscode/
+.agents/
+.codex/
+.claude/
+.DS_Store
+*~
+*.swp
+*.swo
+
+# Local configuration, captures, and machine inventories
+.env
+.env.*
+*.log
+/tmp/
+/captures/
+/dumps/
+/smbios.bin
+/smbios.json
+
+# Keep Cargo.lock, the synthetic test fixture, and documented screenshots.

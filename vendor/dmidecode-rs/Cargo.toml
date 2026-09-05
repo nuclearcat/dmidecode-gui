@@ -1,0 +1,16 @@
+[package]
+name = "dmidecode-rs"
+version = "0.2.4"
+edition = "2018"
+authors = ["Jeffrey R. Gerber <jeffreygerber@gmail.com>", "Juan Zuluaga <juzuluag@hotmail.com>"]
+license-file = "LICENSE"
+description = "SMBIOS loading and decoding library for DMI Explorer"
+repository = "https://github.com/nuclearcat/dmidecode-rs"
+publish = false
+
+[dependencies]
+smbios-lib = "=0.9.2"
+serde_json = "~1.0"
+
+[dev-dependencies]
+tempfile = "~3.19"
